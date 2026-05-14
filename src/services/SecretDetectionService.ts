@@ -3,12 +3,14 @@ import * as os from 'os';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { ExplanationService, ExplanationData } from './ExplanationService';
 
 const execAsync = promisify(exec);
 
 export interface Secret {
   type: string;
   line: number;
+  explanation?: ExplanationData;
 }
 
 const PATTERNS: Array<{ type: string; pattern: RegExp }> = [
@@ -42,7 +44,9 @@ export class SecretDetectionService {
       return stdout.split('\n').filter(Boolean).flatMap(line => {
         try {
           const p = JSON.parse(line);
-          return [{ type: p.DetectorName ?? 'UNKNOWN', line: p.SourceMetadata?.Data?.Filesystem?.line ?? 0 }];
+          const type: string = p.DetectorName ?? 'UNKNOWN';
+          const secretLine: number = p.SourceMetadata?.Data?.Filesystem?.line ?? 0;
+          return [{ type, line: secretLine, explanation: ExplanationService.get(type) }];
         } catch { return []; }
       });
     } finally {
@@ -58,7 +62,7 @@ export class SecretDetectionService {
       while ((match = pattern.exec(code)) !== null) {
         const line = code.substring(0, match.index).split('\n').length;
         if (!secrets.find(s => s.line === line && s.type === type)) {
-          secrets.push({ type, line });
+          secrets.push({ type, line, explanation: ExplanationService.get(type) });
         }
       }
     }

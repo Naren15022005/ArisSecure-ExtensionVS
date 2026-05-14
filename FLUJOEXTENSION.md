@@ -11,10 +11,10 @@ Se actualiza a medida que avanza la implementación.
 |---|---|---|
 | 0. Scaffold & Config | ✅ Completo | package.json, tsconfig, jest.config.js, eslint, prettier |
 | 1. Core Services | ✅ Completo | CodeGen, Security, Secrets |
-| 2. Extension Entry Point | ✅ Completo | 2 comandos con VSCode APIs nativas |
-| 3. Tests | ✅ Completo | 13 tests, 0 errores TypeScript |
-| 4. Webview | ❌ Descartado | Reemplazado por Output Channel + Diagnostics |
-| 5. Publish Prep | ⏳ Pendiente | Icon, README marketplace, vsce |
+| 2. Extension Entry Point | ✅ Completo | 4 comandos con VSCode APIs nativas |
+| 3. Tests | ✅ Completo | 24 tests, 0 errores TypeScript |
+| 4. Sidebar + Quick Action | ✅ Completo | IssueTreeProvider, Activity Bar, botón en editor title |
+| 5. Publish Prep | ⏳ Pendiente | Icon, README marketplace, vsce publish |
 
 ---
 
@@ -37,7 +37,7 @@ git clone https://github.com/Naren15022005/aris-code-extension.git
 cd aris-code-extension
 npm install
 npm run build
-npm test        # deben pasar los 13 tests
+npm test        # deben pasar los 24 tests
 npm run dev     # abre VSCode con la extension cargada → F5 para debug
 ```
 
@@ -53,49 +53,37 @@ Regla: usar VSCode APIs nativas primero. El Webview solo se justifica si las API
 | Mostrar codigo y resultados | `vscode.window.createOutputChannel` |
 | Marcar vulnerabilidades inline | `vscode.languages.createDiagnosticCollection` |
 | Configuracion | `vscode.workspace.getConfiguration` |
-| Historial (fase 2) | `TreeDataProvider` |
+| Historial / lista de issues | `TreeDataProvider` + Activity Bar sidebar ✅ |
 
-Resultado: ~200 lineas vs ~800 con Webview. MVP completado en 2 semanas.
+Resultado: ~350 lineas de codigo de extension + 80 lineas de TreeProvider vs ~800 con Webview.
 
 ---
 
-## Esqueleto de extension.ts
-
-El entry point sigue esta estructura. La implementacion completa esta en `src/extension.ts`.
+## Esqueleto de extension.ts (v0.2.0)
 
 ```typescript
 import * as vscode from 'vscode';
 import { CodeGenerationService } from './services/CodeGenerationService';
 import { SecurityScanningService } from './services/SecurityScanningService';
 import { SecretDetectionService } from './services/SecretDetectionService';
+import { IssueTreeProvider } from './views/IssueTreeProvider';
 
 let outputChannel: vscode.OutputChannel;
+let treeProvider: IssueTreeProvider;
 
 export function activate(context: vscode.ExtensionContext): void {
   outputChannel = vscode.window.createOutputChannel('Aris Code');
-
-  const codeGen = new CodeGenerationService();
-  const security = new SecurityScanningService();
-  const secrets = new SecretDetectionService();
+  treeProvider = new IssueTreeProvider();
+  vscode.window.registerTreeDataProvider('arisCode-issues', treeProvider);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('arisCode.generate', () =>
-      generateCommand(codeGen, security, secrets)
-    ),
-    vscode.commands.registerCommand('arisCode.scanFile', () =>
-      scanFileCommand(security, secrets)
-    )
+    diagnostics,
+    vscode.commands.registerCommand('arisCode.generate', generateCommand),
+    vscode.commands.registerCommand('arisCode.scanFile', scanFileCommand),
+    vscode.commands.registerCommand('arisCode.quickScan', quickScanCommand),
+    vscode.commands.registerCommand('arisCode.goToIssue', goToIssueCommand)
   );
-
-  outputChannel.appendLine('Aris Code activated.');
 }
-
-export function deactivate(): void {
-  outputChannel?.dispose();
-}
-
-// generateCommand: showInputBox → generate → scan → writeResultsToOutput → insertOrCopy
-// scanFileCommand: activeTextEditor → scan → applyDiagnostics → showScanSummary
 ```
 
 ---
@@ -122,17 +110,8 @@ withProgress() [spinner en notificacion]
         |-- SecurityScanningService.scan(code)
         `-- SecretDetectionService.detect(code)
         |
-writeResultsToOutput(code, vulns, secrets)
-  --> OutputChannel "Aris Code":
-        ==================================================
-        Aris Code - Scan Results
-        ==================================================
-        --- Generated Code ---
-        <codigo generado>
-        --- Security Scan ---
-        [CRITICAL] Line 5: SQL injection (rule-id)
-        [SECRET]   Line 12: AWS_ACCESS_KEY - use env vars instead
-        |
+writeResultsToOutput(code, vulns, secrets) --> OutputChannel
+treeProvider.setIssues(...)               --> Sidebar Activity Bar
 insertOrCopy(code)
   |-- editor activo: inserta en posicion del cursor
   `-- sin editor:   copia al clipboard + notification
@@ -142,7 +121,7 @@ insertOrCopy(code)
 
 ## Flujo: `arisCode.scanFile`
 
-Palette → "Aris: Scan Current File"
+Atajo: `Ctrl+Shift+Alt+S` o palette → "Aris: Scan Current File"
 
 ```
 scanFileCommand()
@@ -159,12 +138,43 @@ Promise.all (paralelo)
 applyDiagnostics(doc, vulns, secrets)
   - critical/high  --> DiagnosticSeverity.Error
   - medium/low     --> DiagnosticSeverity.Warning
-  - secrets        --> DiagnosticSeverity.Error
+  - secrets        --> DiagnosticSeverity.Error (siempre critical)
   resultado: squiggles en editor + entradas en panel Problems
+        |
+treeProvider.setIssues(...) --> Sidebar se actualiza
         |
 showScanSummary(vulns, secrets)
   |-- 0 issues: showInformationMessage
-  `-- N issues: showWarningMessage con conteo y severidad
+  `-- N issues: showWarningMessage "Check sidebar"
+```
+
+---
+
+## Flujo: `arisCode.quickScan`
+
+Atajo: `Ctrl+Shift+Alt+Q` | Boton: icono 🛡️ en la barra superior derecha del editor
+
+```
+quickScanCommand()
+        |
+scanFileCommand()  [mismo flujo que arriba]
+        |
+executeCommand('arisCode-issues.focus')  --> abre/enfoca el sidebar
+```
+
+---
+
+## Flujo: `arisCode.goToIssue`
+
+Disparado al hacer click en un item del sidebar.
+
+```
+goToIssueCommand(line: number)
+        |
+activeTextEditor → Position(line - 1, 0)
+        |
+editor.selection = nueva seleccion
+editor.revealRange(...)  --> InCenter
 ```
 
 ---
@@ -192,47 +202,31 @@ SecretDetectionService.detect(code)
 
 ---
 
-## Estructura de Archivos
+## Estructura de Archivos (v0.2.0)
 
 ```
 src/
-├─ extension.ts                     entry point — activacion, 2 comandos, todas las VSCode API calls
+├─ extension.ts                     entry point — activacion, 4 comandos, todas las VSCode API calls
 ├─ services/
 │  ├─ CodeGenerationService.ts      Ollama + OpenAI
 │  ├─ SecurityScanningService.ts    Semgrep API → CLI → []
 │  └─ SecretDetectionService.ts     truffleHog CLI → regex patterns
+├─ views/
+│  └─ IssueTreeProvider.ts          TreeDataProvider para Activity Bar sidebar  ← NUEVO
 ├─ types/
 │  └─ index.ts                      re-exports Vulnerability, Secret + ScanResult
 └─ utils/
    ├─ validation.ts                 validatePrompt() — min 10, max 1000 chars
-   └─ logger.ts                     output channel wrapper (disponible para servicios)
+   └─ logger.ts                     output channel wrapper
 
 tests/
 ├─ __mocks__/
-│  └─ vscode.ts                     mock minimo de VSCode para Jest
+│  └─ vscode.ts                     mock de VSCode para Jest (incluye TreeItem, EventEmitter, etc.)
 └─ unit/
    ├─ validation.test.ts            5 tests
    ├─ SecretDetectionService.test.ts   6 tests
-   └─ SecurityScanningService.test.ts  2 tests
-
-Config:
-├─ package.json
-├─ tsconfig.json
-├─ jest.config.js
-├─ .eslintrc.json
-├─ .prettierrc.json
-├─ .env.example
-└─ .vscode/
-   ├─ launch.json                   F5 → Extension Development Host
-   └─ tasks.json                    build task por defecto
-
-Descartado (no necesario para MVP):
-  src/webview/                         Output Channel + Diagnostics cubren el caso
-  src/commands/                        logica directamente en extension.ts
-  src/services/StorageManager.ts       globalState (fase 2)
-  src/services/AuditLoggingService.ts  (fase 2)
-  src/services/SettingsManager.ts      workspace.getConfiguration directo
-  src/services/DependencyAuditService  npm audit (fase 2)
+   ├─ SecurityScanningService.test.ts  2 tests
+   └─ IssueTreeProvider.test.ts       11 tests  ← NUEVO
 ```
 
 ---
@@ -248,8 +242,6 @@ devDependencies:
   @types/vscode: ^1.60.0
   typescript: ^5.0.0
   eslint: ^8.0.0
-  @typescript-eslint/parser: ^6.0.0
-  @typescript-eslint/eslint-plugin: ^6.0.0
   prettier: ^3.0.0
   jest: ^29.0.0
   ts-jest: ^29.0.0
@@ -260,10 +252,7 @@ devDependencies:
 scripts clave:
   dev:          esbuild --sourcemap --watch
   build:        esbuild → dist/extension.js (bundle, sin vscode)
-  test:         jest
-  test:watch:   jest --watch
-  test:coverage jest --coverage
-  lint:fix:     eslint src --ext ts --fix
+  test:         jest  (24 tests)
   package:      vsce package → .vsix
   publish:      vsce publish
 ```
@@ -283,12 +272,38 @@ scripts clave:
 
 ---
 
-## Comandos Registrados
+## Comandos Registrados (v0.2.0)
 
 | Command ID | Titulo en palette | Atajo |
 |---|---|---|
 | `arisCode.generate` | Aris: Generate Secure Code | `Ctrl+Shift+Alt+G` |
-| `arisCode.scanFile` | Aris: Scan Current File | — |
+| `arisCode.scanFile` | Aris: Scan Current File | `Ctrl+Shift+Alt+S` |
+| `arisCode.quickScan` | Aris: Quick Scan | `Ctrl+Shift+Alt+Q` + boton 🛡️ |
+| `arisCode.goToIssue` | Aris: Go To Issue | click en sidebar |
+
+---
+
+## UI: Activity Bar Sidebar (v0.2.0)
+
+```
+Activity Bar (izquierda):
+└─ 🛡️ Aris Code  (container: arisCode-explorer)
+   └─ Security Issues  (view: arisCode-issues)
+      ├─ 🔴 Critical (N)
+      │  ├─ [L3] AWS_ACCESS_KEY  — Hardcoded secret — move to env var
+      │  └─ [L12] sql-injection  — SQL injection risk
+      ├─ 🟠 High (N)
+      ├─ 🟡 Medium (N)
+      └─ 🔵 Low (N)
+
+Editor Title Bar (superior derecha):
+└─ 🛡️ [Quick Scan]  (cuando hay editor activo)
+```
+
+Comportamiento:
+- Click en item del sidebar → navega a la linea del issue en el editor
+- Quick Scan → escanea archivo activo + abre sidebar automaticamente
+- Sidebar se actualiza tras cada scan (generate o scanFile)
 
 ---
 
@@ -309,84 +324,45 @@ Extension:
 Tests: 13 passing, 0 errores TypeScript, coverage >80% en servicios
 ```
 
-### Semana 3: Polish & Publish Prep — PROXIMO
+### Semana 3: Sidebar + Quick Action — COMPLETO
 
-**Day 1-2: Assets y documentacion**
+```
+v0.2.0:
+  IssueTreeProvider — TreeDataProvider con agrupacion por severidad
+  Activity Bar container (arisCode-explorer) + view (arisCode-issues)
+  quickScan command — escanea + abre sidebar
+  goToIssue command — navegacion directa al issue desde sidebar
+  editor/title menu entry — boton 🛡️ en barra superior del editor
+  Keybindings: Ctrl+Shift+Alt+S (scan) y Ctrl+Shift+Alt+Q (quickScan)
+
+Tests: 24 passing (13 anteriores + 11 nuevos de IssueTreeProvider)
+Build: dist/extension.js 485kb
+Package: aris-code-0.2.0.vsix generado
+```
+
+### Semana 4: Polish & Publish Prep — PROXIMO
+
 ```
 [ ] assets/icon.png           128x128 PNG, fondo oscuro con icono de candado
-[ ] assets/preview.gif        demo animado (opcional pero sube conversiones)
-[ ] CHANGELOG.md              entrada para v0.1.0
-[ ] README.md para Marketplace descripcion corta (max 250 chars) + screenshots
-```
-
-**Day 3: Build y empaquetado**
-```bash
-npm run build     # verifica que dist/extension.js existe
-npm test          # los 13 deben pasar
-npm run lint      # cero errores
-npm run package   # genera aris-code-0.1.0.vsix
-# Instalar localmente: Extensions sidebar > ... > Install from VSIX
-```
-
-**Day 4: Verificacion end-to-end en VSCode real**
-```
-[ ] generate: escribe prompt → Output Channel muestra codigo + scan results
-[ ] generate: codigo se inserta en editor activo
-[ ] scanFile: abre archivo con password hardcodeado → squiggle roja + Problems panel
-[ ] keybinding Ctrl+Shift+Alt+G funciona
-[ ] Settings arisCode.* aparecen en VSCode Settings UI
-[ ] .gitignore tiene: dist/, node_modules/, *.vsix, .env
-[ ] LICENSE file (MIT)
-```
-
-**Day 5: Publicacion**
-```
-[ ] vsce create-publisher alfonsito  (requiere cuenta en marketplace.visualstudio.com)
-[ ] Azure DevOps PAT con scope Marketplace (Manage)
+[ ] .vscodeignore             excluir node_modules, tests, src del .vsix
+[ ] repository en package.json
+[ ] LICENSE (MIT)
+[ ] README.md para Marketplace
 [ ] vsce publish
-[ ] Extension visible en marketplace.visualstudio.com
-[ ] GitHub release con tag v0.1.0 y .vsix adjunto
-[ ] Borrador post Product Hunt
-[ ] Borrador post r/vscode
-```
-
-### Semana 4: Launch
-
-```
-vsce publish activo → extension indexada en marketplace
-Product Hunt post
-Reddit r/vscode + r/programming
-Twitter/X + Discord VSCode
-GitHub README con badge de marketplace
-```
-
-### Quick Start Semana 1 (para retomar contexto rapido)
-
-```bash
-# Verificar que todo esta en orden
-npm test                    # 13 passing
-npm run build               # dist/extension.js generado
-code --extensionDevelopmentPath=.   # o F5 desde VSCode
-```
-
-Para probar CodeGenerationService directamente:
-```bash
-# Verificar que Ollama esta corriendo
-curl http://localhost:11434/api/generate \
-  -d '{"model":"llama2","prompt":"write a hello world function","stream":false}'
+[ ] GitHub release v0.2.0 con .vsix adjunto
 ```
 
 ---
 
-## Fase 2 (post-traction, solo si hay installs)
+## Fase 3 (post-traction)
 
 | Feature | Implementacion |
 |---|---|
-| npm audit integrado | `DependencyAuditService` + resultado en OutputChannel |
-| Historial de generaciones | `context.globalState` + `TreeDataProvider` en sidebar |
+| npm audit integrado | `DependencyAuditService` + resultado en OutputChannel y sidebar |
+| Re-escaneo automatico al guardar | `vscode.workspace.onDidSaveTextDocument` |
 | Selector de modelo Ollama | `vscode.window.showQuickPick` con modelos disponibles |
-| Webview | Solo si OutputChannel/TreeView no pueden mostrar lo necesario |
+| Apply Fix desde sidebar | `vscode.WorkspaceEdit` aplicado desde IssueItem.command |
 
 ---
 
-*Ultima actualizacion: FLUJOEXTENSION completo — esqueleto, dependencias, requisitos, Semana 3 detallada, 13 tests pasando*
+*Ultima actualizacion: v0.2.0 completo — Sidebar + Quick Action + 24 tests pasando*

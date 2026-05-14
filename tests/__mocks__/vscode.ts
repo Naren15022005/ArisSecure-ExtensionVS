@@ -19,6 +19,7 @@ const window = {
     dispose: jest.fn(),
   }),
   withProgress: jest.fn((_opts: unknown, task: () => Promise<void>) => task()),
+  registerTreeDataProvider: jest.fn(),
 };
 
 const commands = {
@@ -42,6 +43,37 @@ const Uri = {
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ProgressLocation = { Notification: 15 };
 const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+const TextEditorRevealType = { InCenter: 2 };
+
+const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+
+class EventEmitter {
+  event = jest.fn();
+  fire = jest.fn();
+  dispose = jest.fn();
+}
+
+class TreeItem {
+  label: string;
+  collapsibleState: number;
+  description?: string;
+  tooltip?: string;
+  iconPath?: unknown;
+  command?: unknown;
+
+  constructor(label: string, collapsibleState = TreeItemCollapsibleState.None) {
+    this.label = label;
+    this.collapsibleState = collapsibleState;
+  }
+}
+
+class ThemeIcon {
+  constructor(public id: string) {}
+}
+
+class ThemeColor {
+  constructor(public id: string) {}
+}
 
 class Range {
   constructor(
@@ -50,6 +82,16 @@ class Range {
     public endLine: number,
     public endChar: number
   ) {}
+}
+
+class Position {
+  constructor(public line: number, public character: number) {}
+}
+
+class Selection extends Range {
+  constructor(anchor: Position, active: Position) {
+    super(anchor.line, anchor.character, active.line, active.character);
+  }
 }
 
 class Diagnostic {
@@ -72,7 +114,15 @@ module.exports = {
   ConfigurationTarget,
   ProgressLocation,
   DiagnosticSeverity,
+  TextEditorRevealType,
+  TreeItemCollapsibleState,
+  EventEmitter,
+  TreeItem,
+  ThemeIcon,
+  ThemeColor,
   Range,
+  Position,
+  Selection,
   Diagnostic,
   ExtensionContext,
 };

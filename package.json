@@ -2,7 +2,7 @@
   "name": "aris-code",
   "displayName": "Aris Code",
   "description": "Security-first code generation for VSCode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "alfonsito",
   "engines": {
     "vscode": "^1.60.0",
@@ -23,8 +23,87 @@
         "command": "arisCode.scanFile",
         "title": "Aris: Scan Current File",
         "category": "Aris Code"
+      },
+      {
+        "command": "arisCode.quickScan",
+        "title": "Aris: Quick Scan",
+        "category": "Aris Code",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "arisCode.goToIssue",
+        "title": "Aris: Go To Issue",
+        "category": "Aris Code"
+      },
+      {
+        "command": "arisCode.applyFix",
+        "title": "Aris: Apply Fix",
+        "category": "Aris Code"
+      },
+      {
+        "command": "arisCode.copyAllIssues",
+        "title": "Aris: Copy All Issues",
+        "category": "Aris Code",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "arisCode.showRelationships",
+        "title": "Aris: Show Issue Relationships",
+        "category": "Aris Code",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "arisCode.suggestFix",
+        "title": "Aris: Suggest Fix",
+        "category": "Aris Code",
+        "icon": "$(lightbulb)"
       }
     ],
+    "keybindings": [
+      {
+        "key": "ctrl+shift+alt+g",
+        "command": "arisCode.generate",
+        "when": "editorTextFocus"
+      },
+      {
+        "key": "ctrl+shift+alt+s",
+        "mac": "cmd+shift+alt+s",
+        "command": "arisCode.scanFile",
+        "when": "editorTextFocus"
+      },
+      {
+        "key": "ctrl+shift+alt+q",
+        "mac": "cmd+shift+alt+q",
+        "command": "arisCode.quickScan",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "arisCode.quickScan",
+          "group": "navigation",
+          "when": "editorTextFocus"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "arisCode-explorer",
+          "title": "Aris Code",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "arisCode-explorer": [
+        {
+          "id": "arisCode-issues",
+          "name": "Security Issues"
+        }
+      ]
+    },
     "configuration": {
       "title": "Aris Code",
       "properties": {
@@ -62,14 +141,7 @@
           "description": "Semgrep API token (optional)"
         }
       }
-    },
-    "keybindings": [
-      {
-        "key": "ctrl+shift+alt+g",
-        "command": "arisCode.generate",
-        "when": "editorTextFocus"
-      }
-    ]
+    }
   },
   "dependencies": {
     "axios": "^1.6.0"
@@ -92,6 +164,10 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node",
+    "build:cli": "esbuild ./src/cli/ArisSecureCLI.ts --bundle --outfile=dist/cli.js --platform=node --external:vscode",
+    "arisecure:scan": "node dist/cli.js --path ./src --format text",
+    "arisecure:scan:json": "node dist/cli.js --path ./src --format json --output scan-report.json",
+    "arisecure:scan:critical": "node dist/cli.js --path ./src --severity critical --format text",
     "dev": "npm run build -- --sourcemap --watch",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
