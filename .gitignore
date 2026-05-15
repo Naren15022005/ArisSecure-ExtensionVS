@@ -39,3 +39,11 @@ temp/
 # User data
 ~/.arisecure/
 .arisecure/
+
+# Internal / private docs
+CLAUDE.md
+FLUJOEXTENSION.md
+RECOMENDACIONES.md
+USAGE.md
+uso.md
+.claude/
