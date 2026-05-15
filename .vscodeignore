@@ -1,20 +1,48 @@
-.git
-.gitignore
-.vscode
-.DS_Store
-node_modules
-npm-debug.log
-.env*
-*.log
-coverage/
+# Source code
 src/
 *.ts
 !*.d.ts
 tsconfig.json
-jest.config.js
-.eslintrc.json
-.prettierrc.json
-DEVELOPMENT.md
-CONTRIBUTING.md
+
+# Compiled output not needed (dist/ is the bundle)
+out/
+dist/*.map
+
+# Tests
 tests/
-**/*.test.ts
+jest.config.js
+coverage/
+
+# Dev config
+.vscode/
+.github/
+.git/
+.gitignore
+.eslintrc*
+.prettierrc*
+.env*
+*.log
+npm-debug.log
+
+# Extra docs (keep README.md, CHANGELOG.md, LICENSE)
+CLAUDE.md
+CONTRIBUTING.md
+DEVELOPMENT.md
+FLUJOEXTENSION.md
+INSTALLATION.md
+RECOMENDACIONES.md
+uso.md
+USAGE.md
+
+# Node & OS
+node_modules/
+.DS_Store
+
+# Claude Code config
+.claude/
+
+# Source images (only resources/ goes in the package)
+ChatGPT*
+
+# Old builds
+*.vsix

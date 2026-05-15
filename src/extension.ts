@@ -10,40 +10,47 @@ import { SmartSeverityService } from './services/SmartSeverityService';
 import { IssueRelationshipService } from './services/IssueRelationshipService';
 import { LogicBasedRemediationService } from './services/LogicBasedRemediationService';
 import { validatePrompt } from './utils/validation';
-import { IssueTreeProvider, IssueData } from './views/IssueTreeProvider';
+import { IssueTreeProvider, IssueData, IssueItem } from './views/IssueTreeProvider';
 import type { ExpertIssue } from './types/expert-issues';
 
 let outputChannel: vscode.OutputChannel;
 const diagnostics = vscode.languages.createDiagnosticCollection('aris-code');
 
-const codeGen = new CodeGenerationService();
-const security = new SecurityScanningService();
-const secrets = new SecretDetectionService();
-const quality = new CodeQualityExpertService();
-const devops = new DevOpsExpertService();
-const scalability = new ScalabilityExpertService();
-const autoFix = new AutoFixService();
-const smartSev = new SmartSeverityService();
+const codeGen      = new CodeGenerationService();
+const security     = new SecurityScanningService();
+const secrets      = new SecretDetectionService();
+const quality      = new CodeQualityExpertService();
+const devops       = new DevOpsExpertService();
+const scalability  = new ScalabilityExpertService();
+const autoFix      = new AutoFixService();
+const smartSev     = new SmartSeverityService();
 const relationships = new IssueRelationshipService();
-const remediation = new LogicBasedRemediationService();
+const remediation  = new LogicBasedRemediationService();
 let treeProvider: IssueTreeProvider;
 
 export function activate(context: vscode.ExtensionContext): void {
   outputChannel = vscode.window.createOutputChannel('Aris Code');
-  treeProvider = new IssueTreeProvider();
+  treeProvider  = new IssueTreeProvider();
 
-  vscode.window.registerTreeDataProvider('arisCode-issues', treeProvider);
+  const treeView = vscode.window.createTreeView('arisCode-issues', {
+    treeDataProvider: treeProvider,
+    showCollapseAll: true,
+  });
+  treeProvider.setTreeView(treeView);
 
   context.subscriptions.push(
+    treeView,
     diagnostics,
-    vscode.commands.registerCommand('arisCode.generate', generateCommand),
-    vscode.commands.registerCommand('arisCode.scanFile', scanFileCommand),
-    vscode.commands.registerCommand('arisCode.quickScan', quickScanCommand),
-    vscode.commands.registerCommand('arisCode.goToIssue', goToIssueCommand),
-    vscode.commands.registerCommand('arisCode.applyFix', applyFixCommand),
-    vscode.commands.registerCommand('arisCode.copyAllIssues', copyAllIssuesCommand),
-    vscode.commands.registerCommand('arisCode.showRelationships', showRelationshipsCommand),
-    vscode.commands.registerCommand('arisCode.suggestFix', suggestFixCommand),
+    vscode.commands.registerCommand('arisCode.generate',           generateCommand),
+    vscode.commands.registerCommand('arisCode.scanFile',           scanFileCommand),
+    vscode.commands.registerCommand('arisCode.quickScan',          quickScanCommand),
+    vscode.commands.registerCommand('arisCode.goToIssue',          goToIssueCommand),
+    vscode.commands.registerCommand('arisCode.showIssueDetail',    showIssueDetailCommand),
+    vscode.commands.registerCommand('arisCode.applyFix',           applyFixCommand),
+    vscode.commands.registerCommand('arisCode.clearIssues',        clearIssuesCommand),
+    vscode.commands.registerCommand('arisCode.copyAllIssues',      copyAllIssuesCommand),
+    vscode.commands.registerCommand('arisCode.showRelationships',  showRelationshipsCommand),
+    vscode.commands.registerCommand('arisCode.suggestFix',         suggestFixCommand),
   );
 
   outputChannel.appendLine('Aris Code v0.3.0 activated.');
@@ -150,7 +157,23 @@ function goToIssueCommand(line: number): void {
   editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
 }
 
-async function applyFixCommand(issue: IssueData): Promise<void> {
+function showIssueDetailCommand(issue: IssueData): void {
+  // Navigate to line
+  const editor = vscode.window.activeTextEditor;
+  if (editor && issue.line > 0) {
+    const pos = new vscode.Position(Math.max(0, issue.line - 1), 0);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+  }
+
+  outputChannel.clear();
+  outputChannel.appendLine(buildIssueDetailOutput(issue));
+  outputChannel.show(true);
+}
+
+async function applyFixCommand(itemOrIssue: IssueItem | IssueData): Promise<void> {
+  const issue = itemOrIssue instanceof IssueItem ? itemOrIssue.issue : itemOrIssue;
+
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     vscode.window.showWarningMessage('Aris Code: Open the affected file first.');
@@ -161,10 +184,7 @@ async function applyFixCommand(issue: IssueData): Promise<void> {
 
   const fix = autoFix.generateFix(issue);
   if (fix) {
-    const label = fix.requiresConfirmation
-      ? `Apply fix: ${fix.description}?`
-      : fix.description;
-
+    const label = fix.requiresConfirmation ? `Apply fix: ${fix.description}?` : fix.description;
     const actions = fix.requiresConfirmation
       ? ['Apply Fix', 'View Documentation', 'Dismiss']
       : ['Apply Fix', 'Dismiss'];
@@ -205,6 +225,13 @@ async function applyFixCommand(issue: IssueData): Promise<void> {
   }
 }
 
+function clearIssuesCommand(): void {
+  treeProvider.clearIssues();
+  diagnostics.clear();
+  outputChannel.clear();
+  outputChannel.appendLine('Aris Code: Issues cleared. Run a new scan when ready.');
+}
+
 async function copyAllIssuesCommand(): Promise<void> {
   const issues = treeProvider.getAllIssues();
   if (issues.length === 0) {
@@ -216,50 +243,9 @@ async function copyAllIssuesCommand(): Promise<void> {
   vscode.window.showInformationMessage(`Aris Code: ${issues.length} issue(s) copied to clipboard.`);
 }
 
-function suggestFixCommand(issue: IssueData): void {
-  const suggestion = remediation.suggestFix(issue.title);
-  if (!suggestion) {
-    vscode.window.showInformationMessage(`Aris Code: No remediation guide for ${issue.title}.`);
-    return;
-  }
-
-  const lines: string[] = [
-    `# Remediation: ${suggestion.issueId}`,
-    '',
-    `**Problem:** ${suggestion.problem}`,
-    '',
-    `**Explanation:** ${suggestion.explanation}`,
-    '',
-    `**Severity:** ${suggestion.severity}  |  **Confidence:** ${suggestion.confidence}  |  **Est. fix time:** ${suggestion.estimatedFixTimeMinutes} min`,
-    '',
-    '## Vulnerable code',
-    '```',
-    suggestion.currentCodeBad ?? 'N/A',
-    '```',
-    '',
-    '## Secure alternative',
-    '```',
-    suggestion.suggestedCodeGood ?? 'N/A',
-    '```',
-    '',
-    '## Steps',
-    ...suggestion.steps.map((s, i) => `${i + 1}. ${s}`),
-  ];
-
-  if (suggestion.performanceGainMs != null) {
-    lines.push('', `**Performance gain:** ~${suggestion.performanceGainMs}ms${suggestion.performanceGainPercent != null ? ` (${suggestion.performanceGainPercent}%)` : ''}`);
-  }
-  if (suggestion.envVarNeeded) {
-    lines.push(`**Environment variable needed:** \`${suggestion.envVarNeeded}\``);
-  }
-  if (suggestion.relatedIssues?.length) {
-    lines.push(`**Related issues:** ${suggestion.relatedIssues.join(', ')}`);
-  }
-
-  outputChannel.clear();
-  outputChannel.appendLine(lines.join('\n'));
-  outputChannel.show(true);
-  vscode.window.showInformationMessage(`Aris Code: Remediation guide for ${suggestion.issueId} shown in output.`);
+function suggestFixCommand(itemOrIssue: IssueItem | IssueData): void {
+  const issue = itemOrIssue instanceof IssueItem ? itemOrIssue.issue : itemOrIssue;
+  showIssueDetailCommand(issue);
 }
 
 function showRelationshipsCommand(): void {
@@ -274,6 +260,142 @@ function showRelationshipsCommand(): void {
   outputChannel.clear();
   outputChannel.appendLine(report);
   outputChannel.show(true);
+}
+
+// ── Issue detail output ───────────────────────────────────────────────────────
+
+function buildIssueDetailOutput(issue: IssueData): string {
+  const BAR  = '─'.repeat(66);
+  const EDGE = '═'.repeat(66);
+  const SEV  = issue.severity.toUpperCase();
+  const lines: string[] = [];
+
+  lines.push(EDGE);
+  lines.push('  ARIS CODE — ISSUE DETAIL');
+  lines.push(EDGE);
+  lines.push('');
+  lines.push(`  [${SEV}]  ${issue.title}  ·  Line ${issue.line}  ·  ${issue.domain}`);
+  lines.push('');
+
+  const exp = issue.explanation;
+  const sug = remediation.suggestFix(issue.title);
+
+  if (exp) {
+    lines.push(`  PROBLEM`);
+    lines.push(`  ${issue.message}`);
+    lines.push('');
+    lines.push(`  WHAT IS IT`);
+    lines.push(indent(exp.what));
+    lines.push('');
+    lines.push(`  WHY IT MATTERS`);
+    lines.push(indent(exp.why));
+    lines.push('');
+
+    if (exp.risks.length > 0) {
+      lines.push(`  RISKS`);
+      for (const risk of exp.risks) lines.push(`  • ${risk}`);
+      lines.push('');
+    }
+
+    lines.push(BAR);
+    lines.push('');
+    lines.push(`  VULNERABLE CODE`);
+    lines.push(indentBlock(exp.example.vulnerable));
+    lines.push('');
+    lines.push(`  SECURE ALTERNATIVE`);
+    lines.push(indentBlock(exp.example.secure));
+    lines.push('');
+
+    if (exp.remediation.length > 0) {
+      lines.push(BAR);
+      lines.push('');
+      lines.push(`  HOW TO FIX (${exp.remediation.length} steps)`);
+      lines.push('');
+      for (const step of exp.remediation) {
+        lines.push(`  ${step.order}. ${step.title}`);
+        lines.push(`     ${step.description}`);
+        if (step.example) lines.push(`     › ${step.example}`);
+        lines.push('');
+      }
+    }
+
+    lines.push(BAR);
+    lines.push('');
+    lines.push(`  STANDARD`);
+    lines.push(`  ${exp.standard.name}`);
+    lines.push(`  ${exp.standard.cweName}`);
+    if (exp.standard.owaspUrl) lines.push(`  ${exp.standard.owaspUrl}`);
+    lines.push('');
+
+    if (exp.references.length > 0) {
+      lines.push(`  REFERENCES`);
+      for (const ref of exp.references) lines.push(`  • ${ref.name}: ${ref.url}`);
+      lines.push('');
+    }
+
+    if (exp.example.docsUrl) {
+      lines.push(`  OFFICIAL DOCS`);
+      lines.push(`  ${exp.example.docsUrl}`);
+      lines.push('');
+    }
+  } else if (sug) {
+    lines.push(`  PROBLEM`);
+    lines.push(indent(sug.problem));
+    lines.push('');
+    lines.push(indent(sug.explanation));
+    lines.push('');
+
+    if (sug.currentCodeBad) {
+      lines.push(BAR);
+      lines.push('');
+      lines.push(`  VULNERABLE CODE`);
+      lines.push(indentBlock(sug.currentCodeBad));
+      lines.push('');
+    }
+    if (sug.suggestedCodeGood) {
+      lines.push(`  SECURE ALTERNATIVE`);
+      lines.push(indentBlock(sug.suggestedCodeGood));
+      lines.push('');
+    }
+
+    if (sug.steps.length > 0) {
+      lines.push(BAR);
+      lines.push('');
+      lines.push(`  HOW TO FIX`);
+      lines.push('');
+      sug.steps.forEach((step, i) => lines.push(`  ${i + 1}. ${step}`));
+      lines.push('');
+    }
+
+    lines.push(BAR);
+    lines.push('');
+    lines.push(`  Est. fix time: ${sug.estimatedFixTimeMinutes} min  ·  Confidence: ${sug.confidence}`);
+    if (sug.envVarNeeded)         lines.push(`  Env var needed: ${sug.envVarNeeded}`);
+    if (sug.performanceGainMs)    lines.push(`  Performance gain: ~${sug.performanceGainMs}ms`);
+    if (sug.relatedIssues?.length) lines.push(`  Related: ${sug.relatedIssues.join(', ')}`);
+    lines.push('');
+  } else {
+    lines.push(`  PROBLEM`);
+    lines.push(`  ${issue.message}`);
+    lines.push('');
+    lines.push(`  No detailed remediation guide found for "${issue.title}".`);
+    lines.push(`  Tip: search OWASP docs for this issue type.`);
+    lines.push('');
+  }
+
+  lines.push(EDGE);
+  lines.push('  Use "Aris: Apply Fix" to apply an automated fix, or follow the steps above.');
+  lines.push(EDGE);
+
+  return lines.join('\n');
+}
+
+function indent(text: string): string {
+  return text.split('\n').map(l => `  ${l}`).join('\n');
+}
+
+function indentBlock(text: string): string {
+  return text.split('\n').map(l => `    ${l}`).join('\n');
 }
 
 // ── Build issue data ──────────────────────────────────────────────────────────
@@ -380,9 +502,7 @@ function buildReportText(issues: IssueData[]): string {
         const exp = issue.explanation;
         lines.push(`  What: ${exp.what}`);
         lines.push(`  Why:  ${exp.why}`);
-        if (exp.remediation.length > 0) {
-          lines.push(`  Fix:  ${exp.remediation[0].title}`);
-        }
+        if (exp.remediation.length > 0) lines.push(`  Fix:  ${exp.remediation[0].title}`);
         lines.push(`  Ref:  ${exp.standard.owaspUrl}`);
       }
       lines.push('');
@@ -422,7 +542,7 @@ function writeScanResultsToOutput(issues: IssueData[]): void {
       }
     }
     outputChannel.appendLine('');
-    outputChannel.appendLine(`Total: ${issues.length} issue(s). Expand items in the Aris sidebar for full details.`);
+    outputChannel.appendLine(`Total: ${issues.length} issue(s). Click any item in the Aris sidebar for full remediation.`);
   }
 
   outputChannel.show(true);
@@ -446,10 +566,10 @@ function applyDiagnostics(
   const items: vscode.Diagnostic[] = [];
 
   for (const v of vulns) {
-    const lineIdx = Math.max(0, v.line - 1);
+    const lineIdx  = Math.max(0, v.line - 1);
     const lineText = doc.lineAt(Math.min(lineIdx, doc.lineCount - 1));
-    const range = new vscode.Range(lineIdx, 0, lineIdx, lineText.text.length);
-    const sev = (v.severity === 'critical' || v.severity === 'high')
+    const range    = new vscode.Range(lineIdx, 0, lineIdx, lineText.text.length);
+    const sev      = (v.severity === 'critical' || v.severity === 'high')
       ? vscode.DiagnosticSeverity.Error
       : vscode.DiagnosticSeverity.Warning;
     const d = new vscode.Diagnostic(range, `[Aris] ${v.message} (${v.ruleId})`, sev);
@@ -458,9 +578,9 @@ function applyDiagnostics(
   }
 
   for (const s of detectedSecrets) {
-    const lineIdx = Math.max(0, s.line - 1);
+    const lineIdx  = Math.max(0, s.line - 1);
     const lineText = doc.lineAt(Math.min(lineIdx, doc.lineCount - 1));
-    const range = new vscode.Range(lineIdx, 0, lineIdx, lineText.text.length);
+    const range    = new vscode.Range(lineIdx, 0, lineIdx, lineText.text.length);
     const d = new vscode.Diagnostic(
       range,
       `[Aris] ${s.type} detected — use an environment variable instead`,
@@ -481,7 +601,7 @@ function showScanSummary(issues: IssueData[]): void {
   }
   const criticalCount = issues.filter(i => i.severity === 'critical').length;
   const message = criticalCount > 0
-    ? `Aris Code: ${total} issue(s) — ${criticalCount} CRITICAL. Expand the sidebar for full details.`
-    : `Aris Code: ${total} issue(s). Check the sidebar for explanations and fixes.`;
+    ? `Aris Code: ${total} issue(s) — ${criticalCount} CRITICAL. Click any item in the sidebar for remediation.`
+    : `Aris Code: ${total} issue(s). Click any item in the sidebar for fix guidance.`;
   vscode.window.showWarningMessage(message);
 }

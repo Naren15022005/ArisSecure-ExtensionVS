@@ -1,15 +1,39 @@
 {
   "name": "aris-code",
   "displayName": "Aris Code",
-  "description": "Security-first code generation for VSCode",
-  "version": "0.2.0",
-  "publisher": "alfonsito",
-  "engines": {
-    "vscode": "^1.60.0",
-    "node": "^18.0.0"
+  "description": "Security & quality analysis with step-by-step remediation. Detects 100+ patterns: SQL Injection, XSS, secrets, code smells, DevOps issues. No AI APIs required — works offline.",
+  "version": "0.3.0",
+  "publisher": "Naren15022005",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Naren15022005/ArisSecure-ExtensionVS"
   },
-  "categories": ["AI", "Code Generators", "Testing"],
-  "keywords": ["ai", "code-generation", "security", "semgrep", "ollama"],
+  "homepage": "https://github.com/Naren15022005/ArisSecure-ExtensionVS#readme",
+  "bugs": {
+    "url": "https://github.com/Naren15022005/ArisSecure-ExtensionVS/issues"
+  },
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "sast",
+    "code-quality",
+    "vulnerability",
+    "remediation",
+    "static-analysis",
+    "owasp",
+    "secrets-detection"
+  ],
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
@@ -36,9 +60,21 @@
         "category": "Aris Code"
       },
       {
+        "command": "arisCode.showIssueDetail",
+        "title": "Aris: Show Issue Detail",
+        "category": "Aris Code"
+      },
+      {
         "command": "arisCode.applyFix",
         "title": "Aris: Apply Fix",
-        "category": "Aris Code"
+        "category": "Aris Code",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "arisCode.clearIssues",
+        "title": "Aris: Clear Issues",
+        "category": "Aris Code",
+        "icon": "$(clear-all)"
       },
       {
         "command": "arisCode.copyAllIssues",
@@ -85,6 +121,40 @@
           "group": "navigation",
           "when": "editorTextFocus"
         }
+      ],
+      "view/title": [
+        {
+          "command": "arisCode.quickScan",
+          "when": "view == arisCode-issues",
+          "group": "navigation@1"
+        },
+        {
+          "command": "arisCode.showRelationships",
+          "when": "view == arisCode-issues && arisCode:hasIssues",
+          "group": "navigation@2"
+        },
+        {
+          "command": "arisCode.copyAllIssues",
+          "when": "view == arisCode-issues && arisCode:hasIssues",
+          "group": "navigation@3"
+        },
+        {
+          "command": "arisCode.clearIssues",
+          "when": "view == arisCode-issues && arisCode:hasIssues",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "arisCode.applyFix",
+          "when": "view == arisCode-issues && viewItem == issue",
+          "group": "inline@1"
+        },
+        {
+          "command": "arisCode.applyFix",
+          "when": "view == arisCode-issues && viewItem == issue",
+          "group": "issue@1"
+        }
       ]
     },
     "viewsContainers": {
@@ -92,7 +162,7 @@
         {
           "id": "arisCode-explorer",
           "title": "Aris Code",
-          "icon": "$(shield)"
+          "icon": "resources/icon-activity.svg"
         }
       ]
     },
@@ -100,7 +170,7 @@
       "arisCode-explorer": [
         {
           "id": "arisCode-issues",
-          "name": "Security Issues"
+          "name": "Issues & Fixes"
         }
       ]
     },
@@ -109,7 +179,10 @@
       "properties": {
         "arisCode.llmProvider": {
           "type": "string",
-          "enum": ["ollama", "openai"],
+          "enum": [
+            "ollama",
+            "openai"
+          ],
           "default": "ollama",
           "description": "LLM provider for code generation"
         },
@@ -153,13 +226,14 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.19.0",
     "eslint": "^8.0.0",
     "jest": "^29.0.0",
+    "ovsx": "^0.10.12",
     "prettier": "^3.0.0",
     "rimraf": "^5.0.5",
     "ts-jest": "^29.0.0",
-    "typescript": "^5.0.0",
-    "esbuild": "^0.19.0"
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

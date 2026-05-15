@@ -13,20 +13,24 @@ export interface IssueData {
   explanation?: ExplanationData;
 }
 
-// ── Severity helpers ──────────────────────────────────────────────────────────
+// ── Severity config ───────────────────────────────────────────────────────────
 
-function severityIcon(s: IssueData['severity']): vscode.ThemeIcon {
-  switch (s) {
-    case 'critical': return new vscode.ThemeIcon('error');
-    case 'high':     return new vscode.ThemeIcon('warning');
-    case 'medium':   return new vscode.ThemeIcon('info');
-    case 'low':      return new vscode.ThemeIcon('circle-outline');
-  }
-}
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'] as const;
+type SeverityLevel = typeof SEVERITY_ORDER[number];
 
-// ── Domain config ─────────────────────────────────────────────────────────────
+const SEVERITY_ICON: Record<SeverityLevel, vscode.ThemeIcon> = {
+  critical: new vscode.ThemeIcon('error'),
+  high:     new vscode.ThemeIcon('warning'),
+  medium:   new vscode.ThemeIcon('info'),
+  low:      new vscode.ThemeIcon('circle-outline'),
+};
 
-const DOMAIN_ORDER: IssueDomain[] = ['Security', 'Quality', 'DevOps', 'Scalability'];
+const SEVERITY_LABEL: Record<SeverityLevel, string> = {
+  critical: 'Critical',
+  high:     'High',
+  medium:   'Medium',
+  low:      'Low',
+};
 
 const DOMAIN_ICON: Record<IssueDomain, string> = {
   Security:    'shield',
@@ -37,7 +41,7 @@ const DOMAIN_ICON: Record<IssueDomain, string> = {
 
 // ── Node types ────────────────────────────────────────────────────────────────
 
-type ArisNode = DomainGroupItem | IssueItem | SectionItem | DetailItem;
+type ArisNode = SeverityGroupItem | IssueItem | SectionItem | DetailItem;
 
 export class DetailItem extends vscode.TreeItem {
   constructor(
@@ -72,12 +76,16 @@ export class SectionItem extends vscode.TreeItem {
   }
 }
 
-export class DomainGroupItem extends vscode.TreeItem {
+export class SeverityGroupItem extends vscode.TreeItem {
   readonly children: IssueItem[];
+  readonly severity: SeverityLevel;
 
-  constructor(domain: IssueDomain, issues: IssueData[]) {
-    super(`${domain} (${issues.length})`, vscode.TreeItemCollapsibleState.Expanded);
-    this.iconPath = new vscode.ThemeIcon(DOMAIN_ICON[domain]);
+  constructor(severity: SeverityLevel, issues: IssueData[]) {
+    super(`${SEVERITY_LABEL[severity]}  (${issues.length})`, vscode.TreeItemCollapsibleState.Expanded);
+    this.severity = severity;
+    this.iconPath = SEVERITY_ICON[severity];
+    this.tooltip  = `${issues.length} ${SEVERITY_LABEL[severity]}-severity issue(s)`;
+    this.contextValue = `severity-${severity}`;
     this.children = issues.map(i => new IssueItem(i));
   }
 }
@@ -87,21 +95,35 @@ export class IssueItem extends vscode.TreeItem {
 
   constructor(issue: IssueData) {
     super(
-      `[L${issue.line}] ${issue.title}`,
+      `[L${issue.line}]  ${issue.title}`,
       issue.explanation
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None
     );
     this.issue = issue;
-    this.description = issue.message.length > 60
-      ? issue.message.substring(0, 60) + '…'
+
+    const domain3 = issue.domain.substring(0, 3).toUpperCase();
+    const msg = issue.message.length > 52
+      ? issue.message.substring(0, 52) + '…'
       : issue.message;
-    this.tooltip = `${issue.domain} — ${issue.severity.toUpperCase()} — ${issue.message}`;
-    this.iconPath = severityIcon(issue.severity);
+    this.description = `[${domain3}]  ${msg}`;
+
+    this.tooltip = new vscode.MarkdownString(
+      `**\`${issue.title}\`**\n\n` +
+      `${issue.message}\n\n` +
+      `| | |\n|---|---|\n` +
+      `| Domain | ${issue.domain} |\n` +
+      `| Severity | ${issue.severity.toUpperCase()} |\n` +
+      `| Line | ${issue.line} |\n\n` +
+      (issue.explanation ? `*Expand for full explanation · Click to view remediation*` : `*Click to view remediation*`)
+    );
+
+    this.iconPath    = new vscode.ThemeIcon(DOMAIN_ICON[issue.domain]);
+    this.contextValue = 'issue';
     this.command = {
-      title: 'Go to Issue',
-      command: 'arisCode.goToIssue',
-      arguments: [issue.line],
+      title: 'Show Issue Detail',
+      command: 'arisCode.showIssueDetail',
+      arguments: [issue],
     };
   }
 
@@ -175,6 +197,7 @@ export class IssueItem extends vscode.TreeItem {
           icon: 'check',
         }
       )),
+      true,
     ));
 
     nodes.push(new SectionItem(
@@ -200,28 +223,36 @@ export class IssueTreeProvider implements vscode.TreeDataProvider<ArisNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<ArisNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private domainGroups: DomainGroupItem[] = [];
+  private severityGroups: SeverityGroupItem[] = [];
   private rawIssues: IssueData[] = [];
+  private treeView?: vscode.TreeView<ArisNode>;
+
+  setTreeView(tv: vscode.TreeView<ArisNode>): void {
+    this.treeView = tv;
+    this.updateMessage('pending');
+  }
 
   setIssues(issues: IssueData[]): void {
     this.rawIssues = issues;
 
-    const byDomain = new Map<IssueDomain, IssueData[]>();
-    for (const d of DOMAIN_ORDER) byDomain.set(d, []);
-    for (const issue of issues) byDomain.get(issue.domain)!.push(issue);
+    const bySeverity = new Map<SeverityLevel, IssueData[]>();
+    for (const s of SEVERITY_ORDER) bySeverity.set(s, []);
+    for (const issue of issues) bySeverity.get(issue.severity)!.push(issue);
 
-    this.domainGroups = DOMAIN_ORDER
-      .filter(d => byDomain.get(d)!.length > 0)
-      .map(d => new DomainGroupItem(d, byDomain.get(d)!));
+    this.severityGroups = SEVERITY_ORDER
+      .filter(s => bySeverity.get(s)!.length > 0)
+      .map(s => new SeverityGroupItem(s, bySeverity.get(s)!));
 
     vscode.commands.executeCommand('setContext', 'arisCode:hasIssues', issues.length > 0);
+    this.updateMessage(issues.length === 0 ? 'clean' : 'issues');
     this._onDidChangeTreeData.fire(undefined);
   }
 
   clearIssues(): void {
     this.rawIssues = [];
-    this.domainGroups = [];
+    this.severityGroups = [];
     vscode.commands.executeCommand('setContext', 'arisCode:hasIssues', false);
+    this.updateMessage('pending');
     this._onDidChangeTreeData.fire(undefined);
   }
 
@@ -234,10 +265,21 @@ export class IssueTreeProvider implements vscode.TreeDataProvider<ArisNode> {
   }
 
   getChildren(element?: ArisNode): ArisNode[] {
-    if (!element)                          return this.domainGroups;
-    if (element instanceof DomainGroupItem) return element.children;
-    if (element instanceof IssueItem)      return element.getEducationItems();
-    if (element instanceof SectionItem)    return element.children;
+    if (!element)                             return this.severityGroups;
+    if (element instanceof SeverityGroupItem) return element.children;
+    if (element instanceof IssueItem)         return element.getEducationItems();
+    if (element instanceof SectionItem)       return element.children;
     return [];
+  }
+
+  private updateMessage(state: 'pending' | 'clean' | 'issues'): void {
+    if (!this.treeView) return;
+    if (state === 'pending') {
+      this.treeView.message = 'Run a scan to detect issues — Ctrl+Shift+Alt+Q';
+    } else if (state === 'clean') {
+      this.treeView.message = 'No issues detected. Code looks clean!';
+    } else {
+      this.treeView.message = undefined;
+    }
   }
 }

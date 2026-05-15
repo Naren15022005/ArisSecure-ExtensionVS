@@ -1,7 +1,7 @@
 import {
   IssueTreeProvider,
   IssueData,
-  DomainGroupItem,
+  SeverityGroupItem,
   IssueItem,
   SectionItem,
   DetailItem,
@@ -37,6 +37,11 @@ jest.mock('vscode', () => {
     constructor(public id: string) {}
   }
 
+  class MarkdownString {
+    value: string;
+    constructor(v: string) { this.value = v; }
+  }
+
   const Uri = {
     parse: jest.fn((url: string) => ({ toString: () => url })),
     file: jest.fn(),
@@ -48,6 +53,7 @@ jest.mock('vscode', () => {
     TreeItem,
     ThemeIcon,
     ThemeColor,
+    MarkdownString,
     Uri,
     commands: { executeCommand: jest.fn(), registerCommand: jest.fn() },
   };
@@ -150,47 +156,48 @@ describe('IssueTreeProvider', () => {
     expect(provider.getChildren()).toHaveLength(0);
   });
 
-  it('setIssues groups by domain', () => {
-    provider.setIssues([makeVuln('high', 1), makeQuality(5), makeDevOps(10)]);
-    const groups = provider.getChildren() as DomainGroupItem[];
+  it('setIssues groups by severity', () => {
+    // high + medium + low = 3 distinct severity groups
+    provider.setIssues([makeVuln('high', 1), makeDevOps(10), makeQuality(5)]);
+    const groups = provider.getChildren() as SeverityGroupItem[];
     expect(groups).toHaveLength(3);
     const labels = groups.map(g => String(g.label));
-    expect(labels.some(l => l.includes('Security'))).toBe(true);
-    expect(labels.some(l => l.includes('Quality'))).toBe(true);
-    expect(labels.some(l => l.includes('DevOps'))).toBe(true);
+    expect(labels.some(l => l.includes('High'))).toBe(true);
+    expect(labels.some(l => l.includes('Medium'))).toBe(true);
+    expect(labels.some(l => l.includes('Low'))).toBe(true);
   });
 
-  it('domain groups are in order: Security, Quality, DevOps, Scalability', () => {
+  it('severity groups are in order: Critical, High, Medium, Low', () => {
     provider.setIssues([
-      makeScalability(1),
-      makeQuality(2),
+      makeScalability(1),  // high
+      makeQuality(2),       // low
       makeVuln('critical', 3),
-      makeDevOps(4),
+      makeDevOps(4),        // medium
     ]);
-    const groups = provider.getChildren() as DomainGroupItem[];
+    const groups = provider.getChildren() as SeverityGroupItem[];
     const labels = groups.map(g => String(g.label));
-    expect(labels[0]).toMatch(/Security/);
-    expect(labels[1]).toMatch(/Quality/);
-    expect(labels[2]).toMatch(/DevOps/);
-    expect(labels[3]).toMatch(/Scalability/);
+    expect(labels[0]).toMatch(/Critical/);
+    expect(labels[1]).toMatch(/High/);
+    expect(labels[2]).toMatch(/Medium/);
+    expect(labels[3]).toMatch(/Low/);
   });
 
-  it('omits domains with no issues', () => {
+  it('omits severity levels with no issues', () => {
     provider.setIssues([makeVuln('high', 1)]);
-    const groups = provider.getChildren() as DomainGroupItem[];
+    const groups = provider.getChildren() as SeverityGroupItem[];
     expect(groups).toHaveLength(1);
-    expect(String(groups[0].label)).toMatch(/Security/);
+    expect(String(groups[0].label)).toMatch(/High/);
   });
 
-  it('domain group label shows issue count', () => {
-    provider.setIssues([makeVuln('high', 1), makeVuln('low', 2)]);
-    const [group] = provider.getChildren() as DomainGroupItem[];
+  it('severity group label shows issue count', () => {
+    provider.setIssues([makeVuln('high', 1), makeVuln('high', 2)]);
+    const [group] = provider.getChildren() as SeverityGroupItem[];
     expect(String(group.label)).toContain('2');
   });
 
   it('group children are IssueItems', () => {
     provider.setIssues([makeVuln('high', 3), makeVuln('high', 7)]);
-    const [group] = provider.getChildren() as DomainGroupItem[];
+    const [group] = provider.getChildren() as SeverityGroupItem[];
     const children = provider.getChildren(group) as IssueItem[];
     expect(children).toHaveLength(2);
     expect(children[0]).toBeInstanceOf(IssueItem);
@@ -203,10 +210,13 @@ describe('IssueTreeProvider', () => {
     expect(String(item.label)).toContain('SQL_INJECTION');
   });
 
-  it('IssueItem command points to goToIssue with correct line', () => {
-    const item = new IssueItem(makeVuln('low', 10));
-    expect((item.command as { command: string; arguments: number[] }).command).toBe('arisCode.goToIssue');
-    expect((item.command as { arguments: number[] }).arguments).toEqual([10]);
+  it('IssueItem command points to showIssueDetail with correct issue', () => {
+    const issue = makeVuln('low', 10);
+    const item = new IssueItem(issue);
+    const cmd = item.command as { command: string; arguments: IssueData[] };
+    expect(cmd.command).toBe('arisCode.showIssueDetail');
+    expect(cmd.arguments[0].line).toBe(10);
+    expect(cmd.arguments[0].title).toBe('SQL_INJECTION');
   });
 
   it('setIssues calls setContext with true when issues exist', () => {
@@ -241,10 +251,25 @@ describe('IssueTreeProvider', () => {
     expect(provider.getChildren()).toHaveLength(0);
   });
 
-  it('all four domains render when all present', () => {
-    provider.setIssues([makeVuln('high', 1), makeQuality(2), makeDevOps(3), makeScalability(4)]);
-    const groups = provider.getChildren() as DomainGroupItem[];
+  it('all four severity levels render when all present', () => {
+    provider.setIssues([
+      makeVuln('critical', 1),
+      makeVuln('high', 2),
+      makeDevOps(3),    // medium
+      makeQuality(4),   // low
+    ]);
+    const groups = provider.getChildren() as SeverityGroupItem[];
     expect(groups).toHaveLength(4);
+  });
+
+  it('IssueItem has contextValue "issue" for context menus', () => {
+    const item = new IssueItem(makeVuln('high', 1));
+    expect(item.contextValue).toBe('issue');
+  });
+
+  it('IssueItem description includes domain badge', () => {
+    const item = new IssueItem(makeVuln('high', 1));
+    expect(String(item.description)).toContain('[SEC]');
   });
 });
 
@@ -302,7 +327,7 @@ describe('IssueItem education items', () => {
   it('Remediation section lists steps in order', () => {
     const item = new IssueItem(makeVuln('critical', 5, true));
     const nodes = item.getEducationItems();
-    const remSection = nodes.find(n => String(n.label) === 'Remediation steps') as SectionItem;
+    const remSection = nodes.find(n => String(n.label).startsWith('Remediation')) as SectionItem;
 
     expect(remSection).toBeInstanceOf(SectionItem);
     expect(remSection.children).toHaveLength(MOCK_EXPLANATION.remediation.length);
@@ -331,7 +356,7 @@ describe('IssueItem education items', () => {
   it('provider getChildren dispatches to IssueItem.getEducationItems', () => {
     const provider = new IssueTreeProvider();
     provider.setIssues([makeVuln('critical', 7, true)]);
-    const [group] = provider.getChildren() as DomainGroupItem[];
+    const [group] = provider.getChildren() as SeverityGroupItem[];
     const [issueItem] = provider.getChildren(group) as IssueItem[];
     const educationNodes = provider.getChildren(issueItem);
 
@@ -341,7 +366,7 @@ describe('IssueItem education items', () => {
   it('provider getChildren dispatches to SectionItem.children', () => {
     const provider = new IssueTreeProvider();
     provider.setIssues([makeVuln('critical', 7, true)]);
-    const [group] = provider.getChildren() as DomainGroupItem[];
+    const [group] = provider.getChildren() as SeverityGroupItem[];
     const [issueItem] = provider.getChildren(group) as IssueItem[];
     const educationNodes = provider.getChildren(issueItem);
     const risksSection = educationNodes.find(n => String(n.label) === 'Risks') as SectionItem;
