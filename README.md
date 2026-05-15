@@ -15,7 +15,7 @@
 
 **Step 1.** Open the extension page in your browser:
 
-👉 **https://open-vsx.org/extension/Naren15022005/aris-code**
+👉 **https://open-vsx.org/extension/alfonsito/aris-code**
 
 **Step 2.** Click the **"Download"** button to get the `.vsix` file.
 
