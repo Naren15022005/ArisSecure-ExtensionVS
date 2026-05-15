@@ -11,59 +11,96 @@
 
 ## 📦 Installation
 
-### Option 1 — Download from Open VSX (Recommended)
+### Option 1 — Download from Open VSX + install via terminal (Recommended)
 
-**Step 1.** Open the extension page in your browser:
+**Step 1.** Open the extension page and download the file:
 
 👉 **https://open-vsx.org/extension/alfonsito/aris-code**
 
-**Step 2.** Click the **"Download"** button to get the `.vsix` file.
+Click the **"Download"** button. The file `Naren15022005.aris-code-0.3.0.vsix` will save to your Downloads folder.
 
-**Step 3.** Open **VS Code**.
+---
 
-**Step 4.** Press `Ctrl+Shift+P` to open the Command Palette, type:
+**Step 2.** Open a terminal and navigate to where the file was downloaded:
+
+```bash
+# On Linux / macOS
+cd ~/Downloads
+
+# On Windows (PowerShell)
+cd $HOME\Downloads
+```
+
+---
+
+**Step 3.** Install the extension with this exact command:
+
+```bash
+code --install-extension Naren15022005.aris-code-0.3.0.vsix
+```
+
+You should see:
+
+```
+Installing extensions...
+Extension 'Naren15022005.aris-code-0.3.0.vsix' was successfully installed.
+```
+
+---
+
+**Step 4.** Restart VS Code and look for the 🛡️ shield icon in the Activity Bar on the left.
+
+That's it — you're ready to scan.
+
+---
+
+### Option 2 — Install from VS Code UI (no terminal needed)
+
+**Step 1.** Download the file from:
+
+👉 **https://open-vsx.org/extension/Naren15022005/aris-code**
+
+Click **"Download"** → the `.vsix` file saves to your Downloads folder.
+
+**Step 2.** Open VS Code → press `Ctrl+Shift+P` → type:
 
 ```
 Extensions: Install from VSIX...
 ```
 
-and press Enter.
+**Step 3.** In the file picker, navigate to Downloads, select `Naren15022005.aris-code-0.3.0.vsix` → click **Install**.
 
-**Step 5.** A file picker opens — navigate to your Downloads folder, select the `Naren15022005.aris-code-0.3.0.vsix` file, and click **Install**.
-
-**Step 6.** VS Code will ask you to reload — click **Reload Now**.
-
-Done! The Aris Code shield icon will appear in the Activity Bar on the left.
+**Step 4.** Click **Reload Now** when prompted.
 
 ---
 
-### Option 2 — Install from terminal (one command)
+### Option 3 — One command (Linux / macOS)
 
-If you have VS Code installed and prefer the terminal:
-
-```bash
-code --install-extension "https://github.com/Naren15022005/ArisSecure-ExtensionVS/releases/download/v0.3.0/aris-code-0.3.0.vsix"
-```
-
-Or download the file first and then install:
+If you prefer a single command that downloads and installs in one step:
 
 ```bash
-# 1. Download
-curl -L -o aris-code.vsix "https://open-vsx.org/api/Naren15022005/aris-code/0.3.0/file/Naren15022005.aris-code-0.3.0.vsix"
+# Download
+curl -L -o Naren15022005.aris-code-0.3.0.vsix \
+  "https://open-vsx.org/api/Naren15022005/aris-code/0.3.0/file/Naren15022005.aris-code-0.3.0.vsix"
 
-# 2. Install
-code --install-extension alfonsito.aris-code-0.3.0.vsix
+# Install
+code --install-extension Naren15022005.aris-code-0.3.0.vsix
 ```
 
 ---
 
-### Option 3 — GitHub Releases
+### Option 4 — GitHub Releases
 
 Download the `.vsix` directly from:
 
 👉 **https://github.com/Naren15022005/ArisSecure-ExtensionVS/releases/latest**
 
-Then follow Steps 3–6 from Option 1.
+Then open a terminal, navigate to your Downloads folder, and run:
+
+```bash
+cd ~/Downloads
+code --install-extension aris-code-0.3.0.vsix
+```
 
 ---
 
