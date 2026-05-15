@@ -52,7 +52,7 @@ Or download the file first and then install:
 curl -L -o aris-code.vsix "https://open-vsx.org/api/Naren15022005/aris-code/0.3.0/file/Naren15022005.aris-code-0.3.0.vsix"
 
 # 2. Install
-code --install-extension aris-code.vsix
+code --install-extension alfonsito.aris-code-0.3.0.vsix
 ```
 
 ---
